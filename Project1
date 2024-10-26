@@ -1,1 +1,74 @@
+import numpy as np
+import scipy.io as sio
+import matplotlib.pyplot as plt
+from sklearn.decomposition import PCA
+from sklearn.cluster import KMeans, DBSCAN
+from sklearn.mixture import GaussianMixture
+from scipy.signal import find_peaks, butter, filtfilt
+
+# Step 1: Load the Data
+data = sio.loadmat('C:\\Users\\javad\\OneDrive\\Desktop\\WiSe 24-25\\Machine Learning-Unsupervised\\Projekt 1\\Data Set\\sample_1.mat')
+signal = data['data'].flatten()  # Adjust 'signal' to the actual key name in the .mat file
+
+# Step 2: Preprocess the Signal - Bandpass Filter
+def bandpass_filter(data, lowcut, highcut, fs, order=4):
+    nyq = 0.5 * fs
+    low = lowcut / nyq
+    high = highcut / nyq
+    b, a = butter(order, [low, high], btype='band')
+    return filtfilt(b, a, data)
+
+fs = 24000  # Sampling rate in Hz
+filtered_signal = bandpass_filter(signal, lowcut=300, highcut=3000, fs=fs)
+
+# Step 3: Spike Detection
+# Find spikes using a simple threshold
+threshold = np.mean(filtered_signal) + 3 * np.std(filtered_signal)
+spike_times, _ = find_peaks(filtered_signal, height=threshold, distance=int(fs*0.001))  # 1 ms minimum distance between spikes
+
+# Extract spike waveforms
+window_size = int(fs * 0.002)  # 2 ms window
+spikes = np.array([filtered_signal[i - window_size//2 : i + window_size//2] for i in spike_times if i - window_size//2 > 0 and i + window_size//2 < len(filtered_signal)])
+
+# Step 4: Feature Extraction using PCA
+pca = PCA(n_components=3)
+spike_features = pca.fit_transform(spikes)
+
+# Step 5: Clustering - KMeans, DBSCAN, or Gaussian Mixture
+# KMeans
+kmeans = KMeans(n_clusters=3, random_state=0)  # Adjust the number of clusters as needed
+kmeans_labels = kmeans.fit_predict(spike_features)
+
+# DBSCAN
+dbscan = DBSCAN(eps=0.5, min_samples=5)
+dbscan_labels = dbscan.fit_predict(spike_features)
+
+# Gaussian Mixture Model
+gmm = GaussianMixture(n_components=3, covariance_type='full', random_state=0)
+gmm_labels = gmm.fit_predict(spike_features)
+
+# Step 6: Plotting Results
+# Average waveform for each neuron cluster (for KMeans as example)
+unique_labels = np.unique(kmeans_labels)
+for label in unique_labels:
+    cluster_spikes = spikes[kmeans_labels == label]
+    avg_spike = np.mean(cluster_spikes, axis=0)
+    std_spike = np.std(cluster_spikes, axis=0)
+    time = np.linspace(-window_size//2, window_size//2, window_size) / fs * 1000  # Convert to ms
+    
+    plt.plot(time, avg_spike, label=f'Neuron {label+1}')
+    plt.fill_between(time, avg_spike - std_spike, avg_spike + std_spike, alpha=0.3)
+plt.xlabel('Time (ms)')
+plt.ylabel('Amplitude')
+plt.title('Average Waveform for Each Neuron')
+plt.legend()
+plt.show()
+
+# Plotting PCA of spike features
+plt.scatter(spike_features[:, 0], spike_features[:, 1], c=kmeans_labels, cmap='viridis')
+plt.xlabel('PCA Component 1')
+plt.ylabel('PCA Component 2')
+plt.title('Spike Clustering using KMeans')
+plt.colorbar(label='Cluster')
+plt.show()
 
